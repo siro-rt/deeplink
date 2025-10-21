@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Open RouteThis</title>
+  <style>
+    body { font-family: -apple-system, system-ui, Segoe UI, Roboto, Helvetica, Arial, sans-serif; padding: 24px; line-height: 1.4; }
+    button { font-size: 16px; padding: 12px 16px; border-radius: 10px; border: 0; background: #0a84ff; color: #fff; }
+    .hint { margin-top: 12px; font-size: 14px; color: #555; }
+    pre { background:#f7f7f8; padding:10px; border-radius:8px; font-size:12px; overflow:auto; }
+  </style>
+</head>
+<body>
+  <h1>Open in RouteThis</h1>
+  <p>This page tests opening the app across different browsers.</p>
+
+  <button id="openApp">Open in App</button>
+  <div class="hint" id="hint"></div>
+
+  <h3>Debug log (for you)</h3>
+  <pre id="log"></pre>
+
+  <script>
+    // ====== CONFIG — swap if your paths differ ======
+    const APP_SCHEME = 'com.routethis.helps://';
+    const UNIVERSAL_LINK = 'https://routethishelps.app.routethis.com/';
+    const IOS_STORE = 'itms-apps://itunes.apple.com/app/id1586154878';
+    const ANDROID_PACKAGE = 'com.routethis.helps';
+    const PLAY_URL = 'https://play.google.com/store/apps/details?id=' + ANDROID_PACKAGE;
+    const TIMEOUT_MS = 1600; // 1.6s fallback timer
+
+    // ====== Utils ======
+    const logEl = document.getElementById('log');
+    function log(...args) {
+      const msg = args.map(x => (typeof x === 'object' ? JSON.stringify(x) : String(x))).join(' ');
+      console.log('[TEST]', ...args);
+      logEl.textContent += msg + '\n';
+    }
+
+    const ua = navigator.userAgent || '';
+    const isIOS = /iP(hone|ad|od)/i.test(ua);
+    const isAndroid = /Android/i.test(ua);
+    // “Safari” = iOS + has Safari but not Chrome/Firefox/Edge variants
+    const isSafari = isIOS && /^((?!CriOS|FxiOS|EdgiOS).)*Safari\//.test(ua);
+
+    // Show a small hint for non-Safari browsers on iOS
+    const hint = document.getElementById('hint');
+    if (isIOS && !isSafari) {
+      hint.textContent = 'iOS non-Safari browser detected. We will try the app, then go to App Store in ~1.6s if not installed.';
+    } else if (isSafari) {
+      hint.textContent = 'Safari detected. Universal Link will open the app or show the banner if not installed.';
+    }
+
+    function openViaCustomSchemeWithFallback() {
+      log('openViaCustomSchemeWithFallback()');
+      let backgrounded = false;
+      let cancelled = false;
+
+      const onVis = () => {
+        log('visibilitychange:', document.visibilityState);
+        if (document.visibilityState === 'hidden') backgrounded = true;
+      };
+      const onHide = () => { log('pagehide'); backgrounded = true; };
+
+      document.addEventListener('visibilitychange', onVis, true);
+      window.addEventListener('pagehide', onHide, true);
+
+      // Kick to your app (custom scheme)
+      try {
+        log('navigating to scheme:', APP_SCHEME);
+        window.location.href = APP_SCHEME;
+      } catch (e) {
+        log('scheme navigation error:', e);
+      }
+
+      const tid = setTimeout(() => {
+        if (!backgrounded && !cancelled) {
+          log('fallback firing → App Store');
+          window.location.href = IOS_STORE;
+        } else {
+          log('fallback cancelled (app likely opened)');
+        }
+        cleanup();
+      }, TIMEOUT_MS);
+
+      function cleanup() {
+        cancelled = true;
+        document.removeEventListener('visibilitychange', onVis, true);
+        window.removeEventListener('pagehide', onHide, true);
+        clearTimeout(tid);
+      }
+    }
+
+    function openOnAndroid() {
+      // Intent URI bakes in package + fallback
+      const intent = `intent://self-install#Intent;scheme=routethis;package=${ANDROID_PACKAGE};S.browser_fallback_url=${encodeURIComponent(PLAY_URL)};end`;
+      log('android intent:', intent);
+      window.location.href = intent;
+    }
+
+    function openApp() {
+      log('openApp clicked', { isIOS, isSafari, isAndroid, ua });
+
+      // Always run in a user gesture (button click), or iOS will block.
+      if (isAndroid) {
+        openOnAndroid();
+        return;
+      }
+      if (isIOS && isSafari) {
+        // Let UL handle both installed and not-installed in Safari
+        log('iOS Safari → Universal Link:', UNIVERSAL_LINK);
+        window.location.href = UNIVERSAL_LINK;
+        return;
+      }
+      if (isIOS) {
+        // Non-Safari on iOS → custom scheme + 1.6s fallback to App Store
+        openViaCustomSchemeWithFallback();
+        return;
+      }
+      // Desktop or unknown → just show the UL
+      log('Unknown/desktop → navigating to UL');
+      window.location.href = UNIVERSAL_LINK;
+    }
+
+    document.getElementById('openApp').addEventListener('click', openApp, { passive: true });
+  </script>
+</body>
+</html>
