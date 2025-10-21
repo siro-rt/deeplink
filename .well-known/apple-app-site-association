@@ -1,0 +1,14 @@
+{
+  "applinks": {
+    "apps": [],
+    "details": [
+      {
+        "appID": "PLRAAY64KV.com.routethis.helps",
+        "paths": [
+          "NOT /d/*",
+          "*"
+        ]
+      }
+    ]
+  }
+}
