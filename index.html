@@ -83,9 +83,7 @@
       }, { capture: true, signal });
 
       window.addEventListener('pagehide', () => markHidden('pagehide'), { capture: true, signal });
-      window.addEventListener('blur',     () => markHidden('blur'),     { capture: true, signal });
-      // Not always supported; harmless if ignored
-      document.addEventListener('freeze', () => markHidden('freeze'),   { capture: true, signal });
+      window.addEventListener('blur', () => { console.log('[TEST] blur (ignored as success signal)') }, true);
 
       const start = Date.now();
       const wasBackgrounded = (graceStart, graceMs) => {
