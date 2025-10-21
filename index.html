@@ -103,35 +103,35 @@
       };
 
       // 1) UL first (best UX where supported)
-      log('navigating to Universal Link:', UL);
-      location.href = UL;
+      // log('navigating to Universal Link:', UL);
+      // location.href = UL;
 
-      // // 2) After a short grace, try scheme ONLY if we clearly stayed foreground
-      // const tUL = setTimeout(() => {
-      //   if (wasBackgrounded(start, UL_GRACE_MS)) {
-      //     log('UL likely succeeded → canceling scheme');
-      //     return cleanup(tUL);
-      //   }
+      // 2) After a short grace, try scheme ONLY if we clearly stayed foreground
+      const tUL = setTimeout(() => {
+        if (wasBackgrounded(start, UL_GRACE_MS)) {
+          log('UL likely succeeded → canceling scheme');
+          return cleanup(tUL);
+        }
 
-      //   log('UL did not background → navigating to scheme:', SCHEME);
-      //   location.href = SCHEME;
+        log('UL did not background → navigating to scheme:', SCHEME);
+        location.href = SCHEME;
 
-      //   // 3) After scheme, if still foreground, go to App Store (and write clipboard)
-      //   const schemeStart = Date.now();
-      //   const tStore = setTimeout(async () => {
-      //     if (wasBackgrounded(schemeStart, FALLBACK_MS)) {
-      //       log('scheme likely succeeded → canceling store');
-      //       return cleanup(tUL, tStore);
-      //     }
-      //     log('still foreground after scheme → write clipboard + App Store');
-      //     await writeClipboardOnce();
-      //     log('navigating to App Store:', IOS_STORE);
-      //     location.href = IOS_STORE;
-      //     cleanup(tUL, tStore);
-      //   }, FALLBACK_MS);
+        // 3) After scheme, if still foreground, go to App Store (and write clipboard)
+        const schemeStart = Date.now();
+        const tStore = setTimeout(async () => {
+          if (wasBackgrounded(schemeStart, FALLBACK_MS)) {
+            log('scheme likely succeeded → canceling store');
+            return cleanup(tUL, tStore);
+          }
+          log('still foreground after scheme → write clipboard + App Store');
+          await writeClipboardOnce();
+          log('navigating to App Store:', IOS_STORE);
+          location.href = IOS_STORE;
+          cleanup(tUL, tStore);
+        }, FALLBACK_MS);
 
-      //   signal.addEventListener('abort', () => clearTimeout(tStore), { once: true });
-      // }, UL_GRACE_MS);
+        signal.addEventListener('abort', () => clearTimeout(tStore), { once: true });
+      }, UL_GRACE_MS);
 
       signal.addEventListener('abort', () => clearTimeout(tUL), { once: true });
     }, { passive: true });
