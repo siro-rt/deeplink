@@ -23,71 +23,30 @@
   <script>
     const params = new URLSearchParams(location.search);
     const apiKey = params.get('apiKey') || 'placeholder-api-key';
-    const UL = `https://routethishelps.app.routethis.com/dl/self-install?apiKey=${encodeURIComponent(apiKey)}`;
-    const SCHEME = `com.routethis.helps://self-install?apiKey=${encodeURIComponent(apiKey)}`;
+
+    // --- Config ---
+    const UL      = `https://routethishelps.app.routethis.com/dl/self-install?apiKey=${encodeURIComponent(apiKey)}`;
+    const SCHEME  = `com.routethis.helps://self-install?apiKey=${encodeURIComponent(apiKey)}`;
     const IOS_STORE = 'itms-apps://itunes.apple.com/app/id1173976362';
-    const UL_GRACE_MS = 500, FALLBACK_MS = 1600;
+
+    // Timers: short grace for UL handoff; longer for scheme→store
+    const UL_GRACE_MS = 500;
+    const FALLBACK_MS = 1600;
+    const SLACK_MS    = 300; // “lost time” buffer to detect backgrounding
 
     const ua = navigator.userAgent||'';
     const isIOS = /iP(hone|ad|od)/i.test(ua);
+
+    const hint = document.getElementById('hint');
+    hint.textContent = isIOS
+      ? 'iOS detected. UL → scheme → store with background detection.'
+      : 'Non-iOS: we simply navigate to the Universal Link.';
 
     async function writeClipboardOnce() {
       try { await navigator.clipboard.writeText(UL); } catch {}
     }
 
-    document.getElementById('openApp').addEventListener('click', () => {
-      log('openApp clicked', { isIOS, ua });
-
-      if (!isIOS) {
-        log('user agent is not iOS');
-        log('navigating to Universal link:', UL);
-        location.href = UL; 
-        return; 
-      }
-
-      let hidden = false; let cancelled = false;
-      
-      const onVis = () => { 
-        log('visibilitychange:', document.visibilityState);
-        if (document.visibilityState === 'hidden') hidden = true; 
-      };
-
-      const onHide = () => { 
-        log('pagehide');
-        hidden = true; 
-      };
-
-      document.addEventListener('visibilitychange', onVis, true);
-      window.addEventListener('pagehide', onHide, true);
-
-      const cleanup = (...tids) => {
-        cancelled = true; tids.forEach(clearTimeout);
-        document.removeEventListener('visibilitychange', onVis, true);
-        window.removeEventListener('pagehide', onHide, true);
-      };
-
-      // 1) UL first
-      log('navigating to Universal link:', UL);
-      location.href = UL;
-
-      // 2) Scheme if still foreground
-      const t1 = setTimeout(() => {
-        if (hidden || cancelled) return cleanup(t1);
-        log('navigating to scheme:', SCHEME);
-        location.href = SCHEME;
-
-        // 3) Write to clipboard and open App Store if still foreground
-        const t2 = setTimeout(async () => {
-          if (!hidden && !cancelled) {
-            await writeClipboardOnce();
-            log('navigating to ap store:', IOS_STORE);
-            location.href = IOS_STORE;
-          }
-          cleanup(t1, t2);
-        }, FALLBACK_MS);
-      }, UL_GRACE_MS);
-    }, { passive: true });
-
+    // Simple logger
     const logEl = document.getElementById('log');
     function log(...args) {
       const msg = args.map(x => (typeof x === 'object' ? JSON.stringify(x) : String(x))).join(' ');
@@ -95,6 +54,87 @@
       logEl.textContent += msg + '\n';
     }
 
+    // Prevent double-run
+    let openingBusy = false;
+
+    document.getElementById('openApp').addEventListener('click', () => {
+      log('openApp clicked', { isIOS, ua });
+      if (openingBusy) { log('ignored: already opening'); return; }
+      openingBusy = true;
+
+      if (!isIOS) {
+        log('non-iOS → navigating to Universal Link:', UL);
+        location.href = UL;
+        openingBusy = false; // fine on non-iOS
+        return;
+      }
+
+      // iOS unified opener with wall-clock guard & abortable listeners
+      const ctrl = new AbortController();
+      const { signal } = ctrl;
+
+      let hidden = false;
+      const markHidden = (src) => { hidden = true; log('markHidden via', src); };
+
+      // Register multiple signals; some may not fire before timers pause, but that’s OK.
+      document.addEventListener('visibilitychange', () => {
+        log('visibilitychange:', document.visibilityState);
+        if (document.visibilityState === 'hidden') markHidden('visibilitychange');
+      }, { capture: true, signal });
+
+      window.addEventListener('pagehide', () => markHidden('pagehide'), { capture: true, signal });
+      window.addEventListener('blur',     () => markHidden('blur'),     { capture: true, signal });
+      // Not always supported; harmless if ignored
+      document.addEventListener('freeze', () => markHidden('freeze'),   { capture: true, signal });
+
+      const start = Date.now();
+      const wasBackgrounded = (graceStart, graceMs) => {
+        const elapsed = Date.now() - graceStart;
+        const inferredBg = elapsed > (graceMs + SLACK_MS);
+        if (inferredBg) log('lost-time guard tripped:', { elapsed, graceMs, SLACK_MS });
+        return hidden || inferredBg;
+      };
+
+      const cleanup = (...tids) => {
+        tids.forEach(t => t && clearTimeout(t));
+        ctrl.abort();
+        openingBusy = false;
+        log('cleanup');
+      };
+
+      // 1) UL first (best UX where supported)
+      log('navigating to Universal Link:', UL);
+      location.href = UL;
+
+      // 2) After a short grace, try scheme ONLY if we clearly stayed foreground
+      const tUL = setTimeout(() => {
+        if (wasBackgrounded(start, UL_GRACE_MS)) {
+          log('UL likely succeeded → canceling scheme');
+          return cleanup(tUL);
+        }
+
+        log('UL did not background → navigating to scheme:', SCHEME);
+        location.href = SCHEME;
+
+        // 3) After scheme, if still foreground, go to App Store (and write clipboard)
+        const schemeStart = Date.now();
+        const tStore = setTimeout(async () => {
+          if (wasBackgrounded(schemeStart, FALLBACK_MS)) {
+            log('scheme likely succeeded → canceling store');
+            return cleanup(tUL, tStore);
+          }
+          log('still foreground after scheme → write clipboard + App Store');
+          await writeClipboardOnce();
+          log('navigating to App Store:', IOS_STORE);
+          location.href = IOS_STORE;
+          cleanup(tUL, tStore);
+        }, FALLBACK_MS);
+
+        signal.addEventListener('abort', () => clearTimeout(tStore), { once: true });
+      }, UL_GRACE_MS);
+
+      signal.addEventListener('abort', () => clearTimeout(tUL), { once: true });
+    }, { passive: true });
   </script>
 </body>
 </html>
