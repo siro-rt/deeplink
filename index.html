@@ -5,42 +5,35 @@
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>Open RouteThis</title>
   <style>
-    body { font-family: -apple-system, system-ui, Segoe UI, Roboto, Helvetica, Arial, sans-serif; padding: 24px; line-height: 1.4; }
-    button { font-size: 16px; padding: 12px 16px; border-radius: 10px; border: 0; background: #0a84ff; color: #fff; }
-    .hint { margin-top: 12px; font-size: 14px; color: #555; }
-    pre { background:#f7f7f8; padding:10px; border-radius:8px; font-size:12px; overflow:auto; }
+    body { font-family:-apple-system,system-ui,Segoe UI,Roboto,Helvetica,Arial,sans-serif;padding:24px;line-height:1.4; }
+    input { font-size:16px;padding:10px 12px;border-radius:8px;border:1px solid #ccc;margin-right:8px; }
+    button { font-size:16px;padding:12px 16px;border-radius:10px;border:0;background:#0a84ff;color:#fff; }
+    .hint { margin-top:12px;font-size:14px;color:#555; }
+    pre { background:#f7f7f8;padding:10px;border-radius:8px;font-size:12px;overflow:auto; }
   </style>
 </head>
 <body>
   <h1>Open in RouteThis</h1>
   <p>This page tests opening the app across different browsers.</p>
 
+  <input id="apiKeyInput" type="password" placeholder="Enter API key" autocomplete="off" />
   <button id="openApp">Open in App</button>
   <div class="hint" id="hint"></div>
 
-  <h3>Debug log (for you)</h3>
+  <h3>Debug log</h3>
   <pre id="log"></pre>
 
   <script>
-    const params = new URLSearchParams(location.search);
-    const apiKey = params.get('apiKey') || 'placeholder-api-key';
-
-    // --- Config ---
-    const UL        = `https://routethishelps.app.routethis.com/dl/self-install?apiKey=${encodeURIComponent(apiKey)}`;
-    const SCHEME    = `com.routethis.helps://self-install?apiKey=${encodeURIComponent(apiKey)}`;
+    // --- Config constants ---
     const IOS_STORE = 'itms-apps://itunes.apple.com/app/id1173976362';
-
-    // Timers: short grace for UL handoff; longer for scheme→store
-    const UL_GRACE_MS = 600;   // small bump improves reliability for App Store handoff
+    const UL_GRACE_MS = 600;
     const FALLBACK_MS = 1600;
-    const SLACK_MS    = 350;   // “lost time” buffer to detect backgrounding
+    const SLACK_MS = 350;
 
-    // UA helpers
     const ua = navigator.userAgent || '';
-    const isIOS    = /iP(hone|ad|od)/i.test(ua);
+    const isIOS = /iP(hone|ad|od)/i.test(ua);
     const isSafari = isIOS && /^((?!CriOS|FxiOS|EdgiOS|OPiOS|DuckDuckGo|Brave).)*Safari\//.test(ua);
 
-    // UI hint
     const hint = document.getElementById('hint');
     hint.textContent = isIOS
       ? (isSafari
@@ -48,124 +41,116 @@
           : 'iOS non-Safari detected. UL → scheme → store with background guard.')
       : 'Non-iOS: navigate to the Universal Link.';
 
-    // Logger
     const logEl = document.getElementById('log');
-    function log(...args) {
-      const msg = args.map(x => (typeof x === 'object' ? JSON.stringify(x) : String(x))).join(' ');
-      console.log('[TEST]', ...args);
+    function log(...args){
+      const msg = args.map(x=>typeof x==='object'?JSON.stringify(x):String(x)).join(' ');
+      console.log('[TEST]',...args);
       logEl.textContent += msg + '\n';
     }
 
-    // Optional: write token/UL to clipboard only before App Store hop (user gesture context)
-    async function writeClipboardOnce() {
-      try { await navigator.clipboard.writeText(UL); } catch {}
+    async function writeClipboardOnce(text){
+      try{ await navigator.clipboard.writeText(text); }catch{}
     }
 
     // Prevent double-run
     let openingBusy = false;
 
-    // Scrub any stale nav on return (prevents “Open in …” banners resurfacing)
-    function scrubOnReturn(tag) {
-      try {
-        history.replaceState(history.state, document.title, location.pathname + location.search);
-        log('scrubOnReturn:', tag);
-      } catch {}
+    // Scrub stale history when returning
+    function scrubOnReturn(tag){
+      try{ history.replaceState(history.state,document.title,location.pathname+location.search); log('scrubOnReturn:',tag); }catch{}
     }
-    window.addEventListener('pageshow', () => scrubOnReturn('pageshow'), { capture: true });
-    document.addEventListener('visibilitychange', () => {
-      if (document.visibilityState === 'visible') scrubOnReturn('visible');
-    }, { capture: true });
+    window.addEventListener('pageshow',()=>scrubOnReturn('pageshow'),{capture:true});
+    document.addEventListener('visibilitychange',()=>{ if(document.visibilityState==='visible') scrubOnReturn('visible'); },{capture:true});
 
-    document.getElementById('openApp').addEventListener('click', () => {
-      log('openApp clicked', { isIOS, isSafari, ua });
-      if (openingBusy) { log('ignored: already opening'); return; }
+    document.getElementById('openApp').addEventListener('click',()=>{
+      const apiKey = document.getElementById('apiKeyInput').value.trim() || 'placeholder-api-key';
+      const UL = `https://routethishelps.app.routethis.com/dl/self-install?apiKey=${encodeURIComponent(apiKey)}`;
+      const SCHEME = `com.routethis.helps://self-install?apiKey=${encodeURIComponent(apiKey)}`;
+
+      log('openApp clicked',{apiKey,isIOS,isSafari,ua});
+      if(openingBusy){ log('ignored: already opening'); return; }
       openingBusy = true;
 
-      // Non-iOS: just use the UL
-      if (!isIOS) {
-        log('non-iOS → navigating to Universal Link:', UL);
+      if(!isIOS){
+        log('non-iOS → UL:',UL);
         location.href = UL;
         openingBusy = false;
         return;
       }
 
-      // iOS Safari: ONLY Universal Link (avoid Safari custom-scheme alert)
-      if (isSafari) {
-        log('iOS Safari → UL only:', UL);
+      if(isSafari){
+        log('Safari → UL only:',UL);
         location.href = UL;
-        openingBusy = false; // we hand control to Safari’s UL flow
+        openingBusy = false;
         return;
       }
 
-      // iOS non-Safari: UL-first → scheme → store, guarded by wall-clock + visibility
       const ctrl = new AbortController();
-      const { signal } = ctrl;
+      const {signal} = ctrl;
 
-      let hidden = false;
-      const markHidden = (src) => { hidden = true; log('markHidden via', src); };
+      let hidden=false;
+      const markHidden=(src)=>{ hidden=true; log('markHidden via',src); };
 
-      // Success signals (don’t treat blur as success; it’s noisy)
-      document.addEventListener('visibilitychange', () => {
-        log('visibilitychange:', document.visibilityState);
-        if (document.visibilityState === 'hidden') markHidden('visibilitychange');
-      }, { capture: true, signal });
+      document.addEventListener('visibilitychange',()=>{
+        log('visibilitychange:',document.visibilityState);
+        if(document.visibilityState==='hidden') markHidden('visibilitychange');
+      },{capture:true,signal});
 
-      window.addEventListener('pagehide', () => markHidden('pagehide'), { capture: true, signal });
+      window.addEventListener('pagehide',()=>markHidden('pagehide'),{capture:true,signal});
 
-      const start = Date.now();
-      const wasBackgrounded = (t0, wait) => {
-        const elapsed = Date.now() - t0;
-        const lost = elapsed > (wait + SLACK_MS);
-        if (lost) log('lost-time guard tripped:', { elapsed, wait, SLACK_MS });
-        return hidden || lost;
+      const start=Date.now();
+      const wasBg=(t0,wait)=>{
+        const elapsed=Date.now()-t0;
+        const lost=elapsed>(wait+SLACK_MS);
+        if(lost) log('lost-time guard tripped:',{elapsed,wait,SLACK_MS});
+        return hidden||lost;
       };
 
-      const cleanup = (...tids) => {
-        tids.forEach(t => t && clearTimeout(t));
+      const cleanup=(...tids)=>{
+        tids.forEach(t=>t&&clearTimeout(t));
         ctrl.abort();
-        openingBusy = false;
+        openingBusy=false;
         log('cleanup');
       };
 
-      // 1) Fire UL immediately inside the click (keeps user-gesture context)
-      log('navigating to Universal Link:', UL);
+      // 1) UL first
+      log('UL:',UL);
       location.href = UL;
 
-      // 2) ONLY try the scheme if we clearly stayed foreground after the UL grace.
-      const tUL = setTimeout(() => {
-        if (wasBackgrounded(start, UL_GRACE_MS)) {
-          log('UL likely handled it (app/store) → cancel scheme');
+      // 2) Scheme only if UL didn’t background
+      const tUL=setTimeout(()=>{
+        if(wasBg(start,UL_GRACE_MS)){
+          log('UL handled it (app/store) → cancel scheme');
           return cleanup(tUL);
         }
 
-        // Pre-schedule a scrub on return so a stale scheme prompt won’t reappear
-        const onVisible = () => { scrubOnReturn('post-scheme-visible'); document.removeEventListener('visibilitychange', onVisible, true); };
-        const onShow    = () => { scrubOnReturn('post-scheme-pageshow'); window.removeEventListener('pageshow', onShow, true); };
-        document.addEventListener('visibilitychange', onVisible, true);
-        window.addEventListener('pageshow', onShow, true);
+        // Schedule scrub on return
+        const onVisible=()=>{ scrubOnReturn('post-scheme-visible'); document.removeEventListener('visibilitychange',onVisible,true); };
+        const onShow=()=>{ scrubOnReturn('post-scheme-pageshow'); window.removeEventListener('pageshow',onShow,true); };
+        document.addEventListener('visibilitychange',onVisible,true);
+        window.addEventListener('pageshow',onShow,true);
 
-        log('UL didn’t background → navigating to scheme:', SCHEME);
+        log('UL didn’t background → scheme:',SCHEME);
         location.href = SCHEME;
 
-        // 3) If still foreground after the scheme window, go to App Store (and write clipboard)
-        const schemeStart = Date.now();
-        const tStore = setTimeout(async () => {
-          if (wasBackgrounded(schemeStart, FALLBACK_MS)) {
-            log('scheme likely opened app → cancel store');
-            return cleanup(tUL, tStore);
+        const s0=Date.now();
+        const tStore=setTimeout(async()=>{
+          if(wasBg(s0,FALLBACK_MS)){
+            log('scheme opened app → cancel store');
+            return cleanup(tUL,tStore);
           }
-          log('still foreground after scheme → write clipboard + App Store');
-          await writeClipboardOnce();
-          log('navigating to App Store:', IOS_STORE);
+          log('still foreground → write clipboard + App Store');
+          await writeClipboardOnce(UL);
+          log('App Store:',IOS_STORE);
           location.href = IOS_STORE;
-          cleanup(tUL, tStore);
-        }, FALLBACK_MS);
+          cleanup(tUL,tStore);
+        },FALLBACK_MS);
 
-        signal.addEventListener('abort', () => clearTimeout(tStore), { once: true });
-      }, UL_GRACE_MS);
+        signal.addEventListener('abort',()=>clearTimeout(tStore),{once:true});
+      },UL_GRACE_MS);
 
-      signal.addEventListener('abort', () => clearTimeout(tUL), { once: true });
-    }, { passive: true });
+      signal.addEventListener('abort',()=>clearTimeout(tUL),{once:true});
+    },{passive:true});
   </script>
 </body>
 </html>
